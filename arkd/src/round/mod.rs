@@ -73,7 +73,11 @@ fn validate_payment(
 	let mut in_set = HashSet::with_capacity(inputs.len());
 	let mut in_sum = Amount::ZERO;
 	for input in inputs {
-		in_sum += input.amount();
+		in_sum = match in_sum.checked_add(input.amount()) {
+			Some(sum) => sum,
+			None => return false
+		};
+
 		if in_sum > Amount::MAX_MONEY || !in_set.insert(input.id()) {
 			return false;
 		}
@@ -81,17 +85,26 @@ fn validate_payment(
 
 	let mut out_sum = Amount::ZERO;
 	for output in outputs {
-		out_sum += output.amount;
+		out_sum = match out_sum.checked_add(output.amount) {
+			Some(sum) => sum,
+			None => return false
+		};
 		if out_sum > in_sum {
 			return false;
 		}
 	}
+
 	for offboard in offboards {
 		let fee = match offboard.fee(offboard_feerate) {
 			Some(v) => v,
 			None => return false,
 		};
-		out_sum += offboard.amount + fee;
+
+		// out_sum = out_sum + offboard_amount + fee
+		out_sum = match out_sum.checked_add(offboard.amount).and_then(|s| s.checked_add(fee)) {
+			None => return false,
+			Some(sum) => sum
+		};
 		if out_sum > in_sum {
 			return false;
 		}
