@@ -126,6 +126,8 @@ dependencies = [
  "portpicker",
  "rand",
  "regex",
+ "serde",
+ "serde_json",
  "tokio",
  "tonic",
  "which 6.0.1",

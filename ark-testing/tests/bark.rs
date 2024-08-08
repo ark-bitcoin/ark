@@ -106,5 +106,28 @@ async fn multiple_round_payments() {
 
 }
 
-// Make every client do a send_round payment
+#[tokio::test]
+async fn oor() {
+	// Initialize the test
+	let ctx = TestContext::new("bark/oor");
+	let bitcoind = ctx.bitcoind("bitcoind-1").await.unwrap();
+	let aspd = ctx.aspd("aspd-1", &bitcoind).await.unwrap();
+
+	// Fund the asp
+	bitcoind.generate(106).await.unwrap();
+	bitcoind.fund_aspd(&aspd, Amount::from_int_btc(10)).await.unwrap();
+
+	// Create a few clients
+	let bark1 = ctx.bark("bark1".to_string(), &bitcoind, &aspd).await.unwrap();
+	let bark2 = ctx.bark("bark2".to_string(), &bitcoind, &aspd).await.unwrap();
+	bitcoind.fund_bark(&bark1, Amount::from_sat(90_000)).await.unwrap();
+	bitcoind.fund_bark(&bark2, Amount::from_sat(5_000)).await.unwrap();
+	bark1.onboard(Amount::from_sat(80_000)).await.unwrap();
+
+	let pk2 = bark2.get_vtxo_pubkey().await.unwrap();
+	bark1.send_oor(pk2, Amount::from_sat(20_000)).await.unwrap();
+
+	assert_eq!(58_035, bark1.offchain_balance().await.unwrap().to_sat());
+	assert_eq!(20_000, bark2.offchain_balance().await.unwrap().to_sat());
+}
 
