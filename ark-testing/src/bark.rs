@@ -1,14 +1,14 @@
+
+use std::{env, fmt, fs};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::io::prelude::*;
-use std::fs;
 use std::ffi::OsStr;
-use std::env;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use bitcoin::{
-	address::{Address, NetworkUnchecked},
-	amount::Amount};
+use bitcoin::address::{Address, NetworkUnchecked};
+use bitcoin::Amount;
+use serde_json;
 use tokio::process::Command as TokioCommand;
 use which::which;
 
@@ -129,6 +129,13 @@ impl Bark {
 		&self.name
 	}
 
+	pub async fn offchain_balance(&self) -> anyhow::Result<Amount> {
+		let json = self.run(["balance", "--json"]).await?;
+		let json = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+		let sats = json.as_object().unwrap().get("offchain").unwrap().as_i64().unwrap();
+		Ok(Amount::from_sat(sats as u64))
+	}
+
 	pub async fn get_address(&self) -> anyhow::Result<Address> {
 		let address_string = self.run(["get-address"]).await?.trim().to_string();
 		let address_unchecked = Address::<NetworkUnchecked>::from_str(&address_string)?;
@@ -139,9 +146,17 @@ impl Bark {
 		Ok(self.run(["get-vtxo-pubkey"]).await?)
 	}
 
-	pub async fn send_round(&self, destination: String, amount: Amount) -> anyhow::Result<()> {
+	pub async fn send_round(&self, destination: impl fmt::Display, amount: Amount) -> anyhow::Result<()> {
+		let destination = destination.to_string();
 		let amount = amount.to_string();
 		self.run(["send-round", &destination, &amount, "--verbose"]).await?;
+		Ok(())
+	}
+
+	pub async fn send_oor(&self, destination: impl fmt::Display, amount: Amount) -> anyhow::Result<()> {
+		let destination = destination.to_string();
+		let amount = amount.to_string();
+		self.run(["send-oor", &destination, &amount, "--verbose"]).await?;
 		Ok(())
 	}
 

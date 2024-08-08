@@ -1,9 +1,9 @@
 
 
-test-unit:
-	cargo test --workspace --exclude ark-testing
+test-unit TEST="":
+	cargo test --workspace --exclude ark-testing {{TEST}}
 
-test-integration:
-	cargo test --package ark-testing
+test-integration TEST="":
+	cargo test --package ark-testing {{TEST}}
 
 test: test-unit test-integration

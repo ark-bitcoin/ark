@@ -302,7 +302,7 @@ impl Wallet {
 		};
 
 		// Store vtxo first before we actually make the on-chain tx.
-		let vtxo = ark::onboard::finish(user_part, asp_part, priv_user_part, &key); 
+		let vtxo = ark::onboard::finish(user_part, asp_part, priv_user_part, &key);
 		self.db.store_vtxo(&vtxo).context("db error storing vtxo")?;
 
 		let tx = self.onchain.finish_tx(onboard_tx)?;
@@ -336,7 +336,7 @@ impl Wallet {
 			exit_branch: exit_branch,
 		};
 
-		if self.db.has_forfeited_vtxo(vtxo.id())? {
+		if self.db.has_spent_vtxo(vtxo.id())? {
 			debug!("Not adding vtxo {} because we previously forfeited it", vtxo.id());
 			return Ok(());
 		}
@@ -373,7 +373,7 @@ impl Wallet {
 				}
 			}
 		}
-		
+
 		//TODO(stevenroose) we currently actually could accidentally be syncing
 		// a round multiple times because new blocks could have come in since we
 		// took current height
@@ -390,7 +390,7 @@ impl Wallet {
 		debug!("ASP has {} OOR vtxos for us", oors.len());
 		for vtxo in oors {
 			// Not sure if this can happen, but well.
-			if self.db.has_forfeited_vtxo(vtxo.id())? {
+			if self.db.has_spent_vtxo(vtxo.id())? {
 				debug!("Not adding OOR vtxo {} because we previously forfeited it", vtxo.id());
 			}
 
@@ -430,6 +430,7 @@ impl Wallet {
 	pub async fn send_oor_payment(&mut self, destination: PublicKey, amount: Amount) -> anyhow::Result<VtxoId> {
 		self.sync_ark().await.context("failed to sync with ark")?;
 
+		let current_height = self.onchain.tip().await?;
 		let fr = self.onchain.regular_fee_rate();
 		//TODO(stevenroose) impl key derivation
 		let vtxo_key = self.vtxo_seed.to_keypair(&SECP);
@@ -467,8 +468,8 @@ impl Wallet {
 				outputs,
 			);
 
-			if let Err(ark::oor::InsufficientFunds { fee, .. }) = payment.check_fee(fr) {
-				account_for_fee += fee;
+			if let Err(ark::oor::InsufficientFunds { missing, .. }) = payment.check_fee(fr) {
+				account_for_fee += missing;
 			} else {
 				break payment;
 			}
@@ -496,14 +497,17 @@ impl Wallet {
 			bail!("invalid length of asp response");
 		}
 
-		let asp_pub_nonces = resp.pub_nonces.into_iter().map(|b| {
-			musig::MusigPubNonce::from_slice(&b)
-		}).collect::<Result<Vec<_>, _>>().context("invalid asp pub nonces")?;
-		let asp_part_sigs = resp.partial_sigs.into_iter().map(|b| {
-			musig::MusigPartialSignature::from_slice(&b)
-		}).collect::<Result<Vec<_>, _>>().context("invalid asp part sigs")?;
+		let asp_pub_nonces = resp.pub_nonces.into_iter()
+			.map(|b| musig::MusigPubNonce::from_slice(&b))
+			.collect::<Result<Vec<_>, _>>()
+			.context("invalid asp pub nonces")?;
+		let asp_part_sigs = resp.partial_sigs.into_iter()
+			.map(|b| musig::MusigPartialSignature::from_slice(&b))
+			.collect::<Result<Vec<_>, _>>()
+			.context("invalid asp part sigs")?;
 
 		trace!("OOR prevouts: {:?}", payment.inputs.iter().map(|i| i.txout()).collect::<Vec<_>>());
+		let input_vtxos = payment.inputs.clone();
 		let tx = payment.sign_finalize_user(
 			&vtxo_key,
 			sec_nonces,
@@ -533,6 +537,12 @@ impl Wallet {
 				//TODO(stevenroose) print vtxo in hex after btc fixed hex
 				error!("Failed to store change vtxo from OOR tx: {}", e);
 			}
+		}
+
+		for v in input_vtxos {
+			self.db.remove_vtxo(v.id()).context("failed to drop input vtxo")?;
+			self.db.store_spent_vtxo(v.id(), current_height)
+				.context("failed to store forfeited vtxo")?;
 		}
 
 		Ok(user_vtxo.id())
@@ -924,7 +934,7 @@ impl Wallet {
 			// And remove the input vtxos.
 			for v in input_vtxos {
 				self.db.remove_vtxo(v.id()).context("failed to drop input vtxo")?;
-				self.db.store_forfeited_vtxo(v.id(), current_height)
+				self.db.store_spent_vtxo(v.id(), current_height)
 					.context("failed to store forfeited vtxo")?;
 			}
 

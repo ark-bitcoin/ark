@@ -1,8 +1,9 @@
 
 #[macro_use] extern crate anyhow;
 #[macro_use] extern crate log;
+#[macro_use] extern crate serde_json;
 
-use std::{env, fs, process};
+use std::{env, fs, io, process};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -29,9 +30,17 @@ struct Cli {
 	/// Enable verbose logging.
 	#[arg(long, short = 'v', global = true)]
 	verbose: bool,
+
+	/// Print output as JSON.
+	///
+	/// Note that simple string values will still be outputted as raw strings.
+	#[arg(long, short = 'j', global = true)]
+	json: bool,
+
 	/// The datadir of the bark wallet.
 	#[arg(long, global = true, default_value_t = default_datadir())]
 	datadir: String,
+
 	#[command(subcommand)]
 	command: Command,
 }
@@ -202,16 +211,32 @@ async fn inner_main(cli: Cli) -> anyhow::Result<()> {
 		Command::GetAddress => println!("{}", w.get_new_onchain_address()?),
 		Command::GetVtxoPubkey => println!("{}", w.vtxo_pubkey()),
 		Command::Balance => {
-			info!("Onchain balance: {}", w.onchain_balance().await?);
-			info!("Offchain balance: {}", w.offchain_balance().await?);
-			let (claimable, unclaimable) = w.unclaimed_exits().await?;
-			if !claimable.is_empty() {
-				let sum = claimable.iter().map(|i| i.spec.amount).sum::<Amount>();
-				info!("Got {} claimable exits with total value of {}", claimable.len(), sum);
-			}
-			if !unclaimable.is_empty() {
-				let sum = unclaimable.iter().map(|i| i.spec.amount).sum::<Amount>();
-				info!("Got {} unclaimable exits with total value of {}", unclaimable.len(), sum);
+			let onchain = w.onchain_balance().await?;
+			let offchain =  w.offchain_balance().await?;
+			let (claimables, unclaimables) = w.unclaimed_exits().await?;
+			let claimable = claimables.iter().map(|i| i.spec.amount).sum::<Amount>();
+			let unclaimable = unclaimables.iter().map(|i| i.spec.amount).sum::<Amount>();
+			if cli.json {
+				//TODO(stevenroose) should make a bark-json crate with these structs
+				serde_json::to_writer(io::stdout(), &json!({
+					"onchain": onchain.to_sat(),
+					"offchain": offchain.to_sat(),
+					"claimable": claimable.to_sat(),
+					"unclaimable": unclaimable.to_sat(),
+				})).unwrap();
+			} else {
+				info!("Onchain balance: {}", onchain);
+				info!("Offchain balance: {}", offchain);
+				if !claimables.is_empty() {
+					info!("Got {} claimable exits with total value of {}",
+						claimables.len(), claimable,
+					);
+				}
+				if !unclaimables.is_empty() {
+					info!("Got {} unclaimable exits with total value of {}",
+						unclaimables.len(), unclaimable,
+					);
+				}
 			}
 		},
 		Command::Onboard { amount } => w.onboard(amount).await?,
