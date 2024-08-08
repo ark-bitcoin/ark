@@ -14,7 +14,7 @@ use crate::exit;
 
 const VTXO_TREE: &str = "bark_vtxos";
 const VTXO_EXPIRY_TREE: &str = "bark_vtxo_by_expiry";
-const FORFEIT_VTXO_TREE: &str = "bark_forfeited_vtxos";
+const SPENT_VTXO_TREE: &str = "bark_spent_vtxos";
 
 // Top-level entries
 
@@ -127,15 +127,15 @@ impl Db {
 		Ok(())
 	}
 
-	pub fn store_forfeited_vtxo(&self, id: VtxoId, height: u32) -> anyhow::Result<()> {
-		self.db.open_tree(FORFEIT_VTXO_TREE)?.insert(id, height.to_le_bytes().to_vec())?;
+	pub fn store_spent_vtxo(&self, id: VtxoId, height: u32) -> anyhow::Result<()> {
+		self.db.open_tree(SPENT_VTXO_TREE)?.insert(id, height.to_le_bytes().to_vec())?;
 		Ok(())
 	}
 
-	pub fn has_forfeited_vtxo(&self, id: VtxoId) -> anyhow::Result<bool> {
-		Ok(self.db.open_tree(FORFEIT_VTXO_TREE)?.get(id)?.is_some())
+	pub fn has_spent_vtxo(&self, id: VtxoId) -> anyhow::Result<bool> {
+		Ok(self.db.open_tree(SPENT_VTXO_TREE)?.get(id)?.is_some())
 	}
-	//TODO(stevenroose) regularly prune forfeit vtxos based on height
+	//TODO(stevenroose) regularly prune spent vtxos based on height
 }
 
 trait ToIVec {

@@ -336,7 +336,7 @@ impl Wallet {
 			exit_branch: exit_branch,
 		};
 
-		if self.db.has_forfeited_vtxo(vtxo.id())? {
+		if self.db.has_spent_vtxo(vtxo.id())? {
 			debug!("Not adding vtxo {} because we previously forfeited it", vtxo.id());
 			return Ok(());
 		}
@@ -390,7 +390,7 @@ impl Wallet {
 		debug!("ASP has {} OOR vtxos for us", oors.len());
 		for vtxo in oors {
 			// Not sure if this can happen, but well.
-			if self.db.has_forfeited_vtxo(vtxo.id())? {
+			if self.db.has_spent_vtxo(vtxo.id())? {
 				debug!("Not adding OOR vtxo {} because we previously forfeited it", vtxo.id());
 			}
 
@@ -924,7 +924,7 @@ impl Wallet {
 			// And remove the input vtxos.
 			for v in input_vtxos {
 				self.db.remove_vtxo(v.id()).context("failed to drop input vtxo")?;
-				self.db.store_forfeited_vtxo(v.id(), current_height)
+				self.db.store_spent_vtxo(v.id(), current_height)
 					.context("failed to store forfeited vtxo")?;
 			}
 
